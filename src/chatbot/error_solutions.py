@@ -1,4 +1,5 @@
 # error_solutions.py
+import re
 from typing import Dict, Any, Optional
 
 ERROR_SOLUTIONS = {
@@ -89,6 +90,10 @@ def get_error_solution(error_message: str) -> Optional[Dict[str, Any]]:
     if not error_message:
         return None
     error_lower = error_message.lower()
+
+    # Recognize different word orders in simulation errors.
+    if re.search(r"\bmatrix\s+(?:is\s+)?singular\b", error_lower):
+        return ERROR_SOLUTIONS["singular matrix"]
     
     for error_key, solution in ERROR_SOLUTIONS.items():
         if error_key in error_lower:
