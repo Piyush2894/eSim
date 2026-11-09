@@ -508,7 +508,7 @@ def handle_esim_question(user_input: str,
         )
         if cmd:
             answer += f"**eSim action:** {cmd}\n"
-        return answer_with_rag_fallback(user_input)
+        return answer
 
     history_text = _history_to_text(history, max_turns=6)
 

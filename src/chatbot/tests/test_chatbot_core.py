@@ -908,4 +908,76 @@ class TestUtilityFunctions(unittest.TestCase):
  
 if __name__ == "__main__":
     unittest.main(verbosity=2)
- 
+
+
+# ===========================================================================
+# REGRESSION — Recognized eSim errors must return their prepared fixes
+# ===========================================================================
+
+class TestKnownErrorResponseRouting(unittest.TestCase):
+    """Keep known simulation errors on the deterministic troubleshooting path."""
+
+    def setUp(self):
+        _reset_globals()
+
+    @staticmethod
+    def _known_solution(with_command=True):
+        solution = {
+            "description": "Simulation convergence error",
+            "severity": "critical",
+            "fixes": [
+                "Check the ground connection",
+                "Check for floating nodes",
+            ],
+        }
+        if with_command:
+            solution["eSim_command"] = "Open Spice Editor"
+        return solution
+
+    def test_known_error_returns_description_severity_and_fixes(self):
+        solution = self._known_solution()
+        with patch.object(core, "get_error_solution", return_value=solution) as classify, \
+             patch.object(core, "answer_with_rag_fallback", return_value="Unrelated model answer") as fallback, \
+             patch.object(core, "run_ollama") as model:
+            result = core.handle_esim_question("Warning: singular matrix", {}, history=[])
+
+        classify.assert_called_once_with("Warning: singular matrix")
+        self.assertIn("Simulation convergence error", result)
+        self.assertIn("critical", result)
+        self.assertIn("Check the ground connection", result)
+        self.assertIn("Check for floating nodes", result)
+        self.assertIn("Open Spice Editor", result)
+        fallback.assert_not_called()
+        model.assert_not_called()
+
+    def test_known_error_without_optional_command(self):
+        solution = self._known_solution(with_command=False)
+        with patch.object(core, "get_error_solution", return_value=solution), \
+             patch.object(core, "answer_with_rag_fallback", return_value="Unrelated model answer") as fallback:
+            result = core.handle_esim_question("singular matrix", {}, history=[])
+
+        self.assertIn("Simulation convergence error", result)
+        self.assertIn("Recommended fixes", result)
+        self.assertNotIn("eSim action:", result)
+        fallback.assert_not_called()
+
+    def test_generic_error_keeps_manual_and_model_path(self):
+        generic = {"description": "General schematic error", "severity": "unknown"}
+        with patch.object(core, "get_error_solution", return_value=generic), \
+             patch.object(core, "search_knowledge", return_value="Manual context") as search, \
+             patch.object(core, "run_ollama", return_value="Model response") as model:
+            result = core.handle_esim_question("How do I simulate in eSim?", {}, history=[])
+
+        self.assertEqual(result, "Model response")
+        search.assert_called_once_with("How do I simulate in eSim?", n_results=5)
+        model.assert_called_once()
+
+    def test_no_error_match_keeps_manual_and_model_path(self):
+        with patch.object(core, "get_error_solution", return_value=None), \
+             patch.object(core, "search_knowledge", return_value="Manual context") as search, \
+             patch.object(core, "run_ollama", return_value="Model response") as model:
+            result = core.handle_esim_question("How do I add a component in eSim?", {}, history=[])
+
+        self.assertEqual(result, "Model response")
+        search.assert_called_once_with("How do I add a component in eSim?", n_results=5)
+        model.assert_called_once()
