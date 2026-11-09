@@ -364,6 +364,50 @@ def _smart_num_predict(user_messages: list, user_override: int = 1024) -> int:
     return min(budget, user_override)
 
 
+def _try_known_error_response(chat_history):
+    """Use the existing backend for recognized simulation errors."""
+    text = next(
+        (line[5:].strip() for line in reversed(chat_history)
+         if isinstance(line, str) and line.startswith("User:")),
+        ""
+    )
+    if not text:
+        return None
+
+    try:
+        from .error_solutions import get_error_solution
+        solution = get_error_solution(text)
+
+        if (not isinstance(solution, dict)
+                or not solution.get("description")
+                or solution["description"] == "General schematic error"):
+            return None
+
+        try:
+            from .chatbot_core import handle_esim_question
+            reply = handle_esim_question(text, {}, None)
+            if isinstance(reply, str) and reply.strip():
+                return reply
+        except Exception as exc:
+            print(f"[CHATBOT] Full backend unavailable: {exc}")
+
+        fixes = "\n".join(
+            f"- {fix}" for fix in solution.get("fixes", [])
+        )
+        reply = (
+            f"**Detected issue:** {solution['description']}\n"
+            f"**Severity:** {solution.get('severity', 'unknown')}\n\n"
+            f"**Recommended fixes:**\n{fixes}\n\n"
+        )
+        if solution.get("eSim_command"):
+            reply += f"**eSim action:** {solution['eSim_command']}\n"
+        return reply
+
+    except Exception as exc:
+        print(f"[CHATBOT] Error lookup unavailable: {exc}")
+        return None
+
+
 # ── Text chat worker ──────────────────────────────────────────────────────────
 
 class OllamaWorker(QThread):
@@ -385,6 +429,14 @@ class OllamaWorker(QThread):
 
     def run(self):
         try:
+            # Use backend guidance for recognized simulation errors.
+            reply = _try_known_error_response(self.chat_history)
+            if reply is not None:
+                if not self._stop_requested:
+                    self.status_signal.emit("Known eSim error detected.")
+                    self.response_signal.emit(reply)
+                return
+
             if not _ensure_ollama_running(self):
                 return
             self.status_signal.emit("Ollama is ready! Getting response…")
