@@ -900,8 +900,61 @@ class TestUtilityFunctions(unittest.TestCase):
         core.clear_history()
         self.assertEqual(core.LAST_IMAGE_CONTEXT,  {})
         self.assertEqual(core.LAST_NETLIST_ISSUES, {})
- 
- 
+
+class TestRealErrorPipelineIntegration(unittest.TestCase):
+    """Test real classification, error lookup, and response routing."""
+
+    def setUp(self):
+        _reset_globals()
+
+    def test_known_error_without_history(self):
+        from chatbot.error_solutions import get_error_solution as real_lookup
+
+        message = "Warning: MATRIX IS SINGULAR"
+
+        with patch.object(core, "get_error_solution", real_lookup),              patch.object(core, "run_ollama") as model,              patch.object(core, "search_knowledge") as search:
+
+            result = core.handle_input(message)
+
+        self.assertIn("Detected issue", result)
+        self.assertIn("Simulation convergence error", result)
+        self.assertIn("critical", result.lower())
+        self.assertIn("Recommended fixes", result)
+
+        model.assert_not_called()
+        search.assert_not_called()
+
+    def test_known_error_with_history(self):
+        from chatbot.error_solutions import get_error_solution as real_lookup
+
+        history = [
+            {"user": "How do I simulate?", "bot": "Run NgSpice."}
+        ]
+
+        with patch.object(core, "get_error_solution", real_lookup),              patch.object(core, "run_ollama") as model,              patch.object(core, "search_knowledge") as search:
+
+            result = core.handle_input("matrix is singular", history)
+
+        self.assertIn("Detected issue", result)
+        self.assertIn("Recommended fixes", result)
+
+        model.assert_not_called()
+        search.assert_not_called()
+
+    def test_unknown_error_uses_model_fallback(self):
+        from chatbot.error_solutions import get_error_solution as real_lookup
+
+        message = "unrecognized circuit error xyz"
+
+        with patch.object(core, "get_error_solution", real_lookup),              patch.object(core, "search_knowledge", return_value="Manual context") as search,              patch.object(core, "run_ollama", return_value="Mocked fallback answer") as model:
+
+            result = core.handle_input(message)
+
+        self.assertEqual(result, "Mocked fallback answer")
+        search.assert_called_once()
+        model.assert_called_once()
+
+
 # ===========================================================================
 
 class TestAlternateSingularMatrixRouting(unittest.TestCase):
