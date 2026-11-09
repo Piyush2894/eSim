@@ -375,6 +375,13 @@ def classify_question_type(user_input: str, has_image_context: bool,
     if len(user_words) <= 3 and any(g in user_words for g in greetings):
         return "greeting"
 
+    # Recognize singular-matrix errors before generic follow-up routing.
+    if re.search(
+        r"\b(?:singular\s+matrix|matrix\s+(?:is\s+)?singular)\b",
+        user_lower
+    ):
+        return "esim"
+
     # Topic switch check before checking follow-up phrases
     if is_semantic_topic_switch(user_input, history):
         print("[COPILOT] Topic switch detected (semantic)")

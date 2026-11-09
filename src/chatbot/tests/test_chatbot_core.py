@@ -903,6 +903,36 @@ class TestUtilityFunctions(unittest.TestCase):
  
  
 # ===========================================================================
+
+class TestAlternateSingularMatrixRouting(unittest.TestCase):
+    """Check whether singular-matrix errors reach the correct handler."""
+
+    def setUp(self):
+        _reset_globals()
+
+    def test_reversed_word_order(self):
+        with patch.object(core, "is_semantic_topic_switch", return_value=False):
+            result = core.classify_question_type("matrix is singular", False, None)
+        self.assertEqual(result, "esim")
+
+    def test_reversed_word_order_reaches_handler(self):
+        with patch.object(core, "handle_esim_question", return_value="Known error") as handler:
+            with patch.object(core, "handle_simple_question", return_value="Generic answer") as generic:
+                result = core.handle_input("matrix is singular")
+        self.assertEqual(result, "Known error")
+        handler.assert_called_once()
+        generic.assert_not_called()
+
+    def test_original_word_order(self):
+        result = core.classify_question_type("singular matrix", False, None)
+        self.assertEqual(result, "esim")
+
+    def test_reversed_word_order_with_history(self):
+        history = [{"user": "How do I simulate?", "bot": "Run NgSpice."}]
+        with patch.object(core, "is_semantic_topic_switch", return_value=False):
+            result = core.classify_question_type("matrix is singular", False, history)
+        self.assertEqual(result, "esim")
+
 # ENTRY POINT
 # ===========================================================================
  
