@@ -1051,6 +1051,22 @@ class ChatSidebar(QWidget):
 
 # ── Main Chatbot GUI ──────────────────────────────────────────────────────────
 
+def _can_answer_known_error_offline(message: str) -> bool:
+    """Lightweight check; full response is built in OllamaWorker."""
+    if not isinstance(message, str) or not message.strip():
+        return False
+    try:
+        from chatbot.error_solutions import get_error_solution
+        solution = get_error_solution(message)
+    except Exception:
+        return False
+    return (
+        isinstance(solution, dict)
+        and bool(solution.get("description"))
+        and solution.get("description") != "General schematic error"
+    )
+
+
 class ChatbotGUI(QWidget):
     _background_session_saved = pyqtSignal(dict)
 
@@ -1474,9 +1490,11 @@ class ChatbotGUI(QWidget):
         """
         from chatbot.chatbot_thread import is_ollama_running, start_ollama
 
-        self.user_input.setEnabled(False)
-        self.send_button.setEnabled(False)
-        self.status_label.setText("🔄 Starting Ollama server…")
+        # Deterministic known-error guidance does not need a model.
+        # The send-time guard still blocks general text and images offline.
+        self.user_input.setEnabled(True)
+        self.send_button.setEnabled(True)
+        self.status_label.setText("Checking Ollama; known-error help works offline.")
 
         if not is_ollama_running():
             self.status_label.setText("🔄 Starting Ollama in background…")
@@ -1507,11 +1525,12 @@ class ChatbotGUI(QWidget):
             self.status_label.setText("✅ Ollama server is running.")
             self._check_and_pull_models()
         else:
+            self.user_input.setEnabled(True)
+            self.send_button.setEnabled(True)
             self.status_label.setText(
-                "❌ Could not start Ollama. "
-                "Please install it from https://ollama.com and restart eSim."
+                "Ollama unavailable. Known eSim errors can be diagnosed offline; "
+                "other questions require a local model."
             )
-            # Leave input disabled
 
     def _check_and_pull_models(self):
         """Check installed models and pull anything that is missing."""
@@ -2764,15 +2783,21 @@ class ChatbotGUI(QWidget):
         if self._is_generating:
             return
 
-        # Guard: prevent sending when no valid model is available
+        # Model-free mode is restricted to known text simulation errors.
         selected = self.model_combo.currentText()
-        if not selected or selected == "No models found" or selected == "Loading models…":
-            self.status_label.setText(
-                "⚠️ No model available. Make sure Ollama is running "
-                "and you have pulled a model."
-            )
-            self._populate_models()
-            return
+        no_model = not selected or selected in ("No models found", "Loading models…")
+        if no_model:
+            if staged_paths:
+                self.status_label.setText(
+                    "Image analysis requires Ollama and a vision model."
+                )
+                return
+            if not _can_answer_known_error_offline(user_text):
+                self.status_label.setText(
+                    "Ollama/model required for general chat. "
+                    "Known eSim simulation errors work offline."
+                )
+                return
 
         if self._viewing_past_session:
             self._viewing_past_session = False
