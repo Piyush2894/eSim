@@ -1378,6 +1378,20 @@ class ChatbotGUI(QWidget):
         self.attach_button.clicked.connect(self._pick_image)
         input_layout.addWidget(self.attach_button)
 
+        # Offline NgSpice log import (does not require an Ollama model).
+        self._import_log_btn = QPushButton("LOG")
+        self._import_log_btn.setFixedSize(38, 38)
+        self._import_log_btn.setToolTip("Import NgSpice log (.log, .txt, .out)")
+        self._import_log_btn.setStyleSheet("""
+            QPushButton {
+                font-size:10px; font-weight:bold; border:none;
+                border-radius:19px; background:#edf4ff; color:#1766ac;
+            }
+            QPushButton:hover { background:#d9ebff; }
+        """)
+        self._import_log_btn.clicked.connect(self._import_ngspice_log)
+        input_layout.addWidget(self._import_log_btn)
+
         self.mic_button = QPushButton("🎤")
         self.mic_button.setFixedSize(38, 38)
         QTimer.singleShot(200, self._update_mic_tooltip)
@@ -2684,6 +2698,48 @@ class ChatbotGUI(QWidget):
         self._session_created_at = datetime.now().strftime("%Y-%m-%d %H:%M")
         # MERGED: also reset streaming-related state so the next message starts clean
         self._reset_stream_state()
+
+
+    def _import_ngspice_log(self):
+        """Select a local NgSpice text log and route it to the offline analyzer."""
+        if self._is_generating:
+            self.status_label.setText("Finish the current response before importing a log.")
+            return
+
+        filename, _ = QFileDialog.getOpenFileName(
+            self,
+            "Import NgSpice Simulation Log",
+            "",
+            "NgSpice logs (*.log *.txt *.out)",
+        )
+        if not filename:
+            return
+
+        try:
+            from chatbot.log_file_import import read_ngspice_log_file
+            log_text = read_ngspice_log_file(filename)
+        except (OSError, ValueError, UnicodeError) as exc:
+            self.status_label.setText(f"Cannot import simulation log: {exc}")
+            return
+
+        # Keep full line breaks for the analyzer's source-line references.
+        prompt = "Analyze log: " + log_text
+        summary = (
+            f"Analyze imported log: {os.path.basename(filename)} "
+            f"({len(log_text.splitlines())} lines)"
+        )
+        if self._viewing_past_session:
+            self._viewing_past_session = False
+        self._clear_staged_images()
+        self._last_image_paths.clear()
+        self._current_session_kind = "simulation_error"
+        self.chat_history = (self.chat_history + [f"User: {prompt}"])[-20:]
+        self._retry_history = list(self.chat_history)
+        self._last_user_text = summary
+        self.chat_display.append(_user_bubble(summary, _get_time()))
+        self._scroll_to_bottom()
+        self._start_thinking()
+        self._launch_text_worker(self.chat_history)
 
     def _launch_text_worker(self, chat_history):
         """EXTRACTED: Launch OllamaWorker with correct configuration and signal mappings (streaming-aware)."""
