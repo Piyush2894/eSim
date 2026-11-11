@@ -153,4 +153,3 @@ def test_imported_log_reports_original_source_line_numbers(tmp_path):
     assert report is not None
     assert "Occurrences: 2 | Source line(s): 1, 3" in report
     assert "Occurrences: 1 | Source line(s): 2" in report
-
