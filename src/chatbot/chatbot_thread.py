@@ -374,6 +374,15 @@ def _try_known_error_response(chat_history):
     if not text:
         return None
 
+    if text.casefold().startswith("analyze log:"):
+        try:
+            from .log_analyzer import analyze_ngspice_log, format_log_analysis
+            findings = analyze_ngspice_log(text.split(":", 1)[1])
+            return format_log_analysis(findings) if findings else None
+        except Exception as exc:
+            print(f"[CHATBOT] Log analyzer unavailable: {exc}")
+            return None
+
     try:
         from .error_solutions import get_error_solution
         solution = get_error_solution(text)

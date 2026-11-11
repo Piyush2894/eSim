@@ -1055,6 +1055,13 @@ def _can_answer_known_error_offline(message: str) -> bool:
     """Lightweight check; full response is built in OllamaWorker."""
     if not isinstance(message, str) or not message.strip():
         return False
+    if message.strip().casefold().startswith("analyze log:"):
+        try:
+            from chatbot.log_analyzer import analyze_ngspice_log
+            return bool(analyze_ngspice_log(message.split(":", 1)[1]))
+        except Exception:
+            return False
+
     try:
         from chatbot.error_solutions import get_error_solution
         solution = get_error_solution(message)
